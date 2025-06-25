@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Devanagari:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', 'Noto Sans Devanagari', sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Indian Police Theme Colors */
+:root {
+  --saffron: #FF9933;
+  --white: #FFFFFF;
+  --green: #138808;
+  --navy-blue: #000080;
+  --ashoka-blue: #6666FF;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, #FF9933, #138808);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, #e6851a, #0f6b06);
+}
+
+/* Animation for Indian flag colors */
+@keyframes flag-wave {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-2px); }
+}
+
+.flag-animation {
+  animation: flag-wave 2s ease-in-out infinite;
+}
+
+/* Gradient text for Hindi/English */
+.gradient-text {
+  background: linear-gradient(135deg, #FF9933 0%, #FFFFFF 50%, #138808 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Custom button styles for Indian theme */
+.btn-indian-primary {
+  background: linear-gradient(135deg, #FF9933 0%, #FF6600 100%);
+  border: 2px solid #FF9933;
+  transition: all 0.3s ease;
+}
+
+.btn-indian-primary:hover {
+  background: linear-gradient(135deg, #e6851a 0%, #e55a00 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(255, 153, 51, 0.3);
+}
+
+.btn-indian-secondary {
+  background: linear-gradient(135deg, #138808 0%, #0f6b06 100%);
+  border: 2px solid #138808;
+  transition: all 0.3s ease;
+}
+
+.btn-indian-secondary:hover {
+  background: linear-gradient(135deg, #0f6b06 0%, #0a4d04 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(19, 136, 8, 0.3);
+}
+
+/* Card hover effects */
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+}
+
+/* Loading animation */
+@keyframes pulse-indian {
+  0%, 100% {
+    background: linear-gradient(135deg, #FF9933 0%, #138808 100%);
+  }
+  50% {
+    background: linear-gradient(135deg, #138808 0%, #FF9933 100%);
+  }
+}
+
+.pulse-indian {
+  animation: pulse-indian 2s ease-in-out infinite;
+}
+
+/* Navbar Styles */
+.nav-link {
+  transition: all 0.3s ease;
+}
+
+.nav-link:hover {
+  opacity: 0.8;
+}
+
+/* Custom gradient background */
+.navbar-gradient {
+  background: linear-gradient(90deg, #FF6B35 0%, #4CAF50 100%);
+}

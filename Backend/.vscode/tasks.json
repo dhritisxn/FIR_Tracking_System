@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "Remove unnecessary file fir_system_backend_js.js",
+			"command": "Remove-Item -Path \"c:\\Users\\ASUS\\Desktop\\Backend\\fir_system_backend_js.js\"",
+			"group": "build"
+		}
+	]
+}
