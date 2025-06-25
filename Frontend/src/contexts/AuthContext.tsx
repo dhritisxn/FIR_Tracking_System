@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, AuthState, LoginCredentials, SignupData } from '../types/auth';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'https://fir-tracking-system.onrender.com/api';
 
 interface AuthContextType extends AuthState {
   login: (credentials: LoginCredentials) => Promise<boolean>;

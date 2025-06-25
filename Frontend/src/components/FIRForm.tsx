@@ -7,7 +7,7 @@ interface FIRFormProps {
   onBack: () => void;
 }
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'https://fir-tracking-system.onrender.com/api';
 
 const FIRForm: React.FC<FIRFormProps> = ({ onBack }) => {
   const { user } = useAuth();
