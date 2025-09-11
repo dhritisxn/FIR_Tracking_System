@@ -4,6 +4,7 @@ import random
 import string
 from collections import Counter, defaultdict
 from typing import List, Tuple, Dict, Set
+import requests
 
 PRIORITY_LABELS = {
     1: "Critical",
