@@ -32,6 +32,9 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack, onFileFIR }) => {
     preferredLanguage: 'English',
     location: 'India'
   });
+  const [isRecording, setIsRecording] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -286,7 +289,62 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack, onFileFIR }) => {
       setInputText('');
     }
   };
+const handleStartSpeechRecognition = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Speech recognition not supported in this browser.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-IN';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognitionRef.current = recognition;
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInputText(transcript);
+    };
+    recognition.start();
+  };
 
+  const handleStopSpeechRecognition = () => {
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+    }
+  };
+
+  // Send audio handler
+  const handleSendAudio = async () => {
+    if (audioChunks.length === 0) return;
+    setIsUploading(true);
+    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'recording.wav');
+    formData.append('user_id', 'USER_ID'); // Replace with actual user id
+    formData.append('location', userProfile.location || 'Unknown');
+    try {
+      const res = await fetch('/api/police/register_fir_audio', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.transcription) {
+        addMessage('🎤 Transcribed: ' + data.transcription, 'user');
+        addMessage('✅ FIR Registered via audio!', 'bot');
+      } else {
+        addMessage('❌ Error: Could not transcribe audio.', 'bot');
+      }
+    } catch (err) {
+      addMessage('❌ Error sending audio.', 'bot');
+    }
+    setIsUploading(false);
+    setAudioChunks([]);
+  };
   const handleOptionClick = (option: string) => {
     addMessage(option, 'user');
     handleBotResponse(option);
@@ -469,6 +527,14 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack, onFileFIR }) => {
                 className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-3 rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105"
               >
                 <Send className="h-5 w-5" />
+              </button>
+              {/* Microphone Button */}
+              <button
+                onClick={isListening ? handleStopSpeechRecognition : handleStartSpeechRecognition}
+                className={bg-gradient-to-r from-purple-600 to-pink-600 text-white p-3 rounded-xl ml-2 shadow-lg hover:shadow-xl transform hover:scale-105 ${isListening ? 'animate-pulse' : ''}}
+                title={isListening ? 'Stop Listening' : 'Start Speech to Text'}
+              >
+                <Mic className="h-5 w-5" />
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-2 text-center">
