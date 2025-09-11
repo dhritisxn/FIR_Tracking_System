@@ -5,6 +5,8 @@ const FIR = require("../models/FIR");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
 const Joi = require("joi");
+const multer = require("multer");
+const upload = multer({ dest: "uploads/" });
 
 function getPriorityFromML(description) {
   return new Promise((resolve, reject) => {
@@ -24,7 +26,21 @@ function getPriorityFromML(description) {
     });
   });
 }
-
+function getTranscriptionFromAudio(audioPath) {
+    return new Promise((resolve, reject) => {
+      const python = spawn("python", ["ml_model/predict.py", "--audio", audioPath]);
+      let result = "";
+      python.stdout.on("data", (data) => {
+        result += data.toString();
+      });
+      python.stderr.on("data", (data) => {
+        console.error(Python error: ${data});
+      });
+      python.on("close", () => {
+        resolve(result.trim());
+      });
+    });
+  }
 const firSchema = Joi.object({
   user_id: Joi.string().required(),
   description: Joi.string().required(),
@@ -38,6 +54,25 @@ function validateFIRInput(req, res, next) {
 }
 
 router.use(auth("police"));
+router.post("/register_fir_audio", upload.single("audio"), async (req, res) => {
+  const { user_id, location } = req.body;
+  const audioFile = req.file;
+  if (!audioFile) {
+    return res.status(400).json({ error: "Audio file is required" });
+  }
+  try {
+    // Get transcription from audio
+    const transcribedText = await getTranscriptionFromAudio(audioFile.path);
+    // Predict priority
+    const priority = await getPriorityFromML(transcribedText);
+    const newFIR = new FIR({ user_id, description: transcribedText, location, priority });
+    await newFIR.save();
+    res.status(201).json({ message: "FIR Registered via audio", fir: newFIR, transcription: transcribedText });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error registering FIR from audio" });
+  }
+});
 
 router.post("/register_fir", validateFIRInput, async (req, res) => {
   const { user_id, description, location } = req.body;
