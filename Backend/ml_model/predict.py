@@ -11,6 +11,23 @@ PRIORITY_LABELS = {
     3: "Low"
 }
 
+ELEVENLABS_API_KEY = "sk_106ea751040f4fcf45e9033a863eb0f45cc4bb142d79228c"
+
+def transcribe_audio_elevenlabs(audio_path: str) -> str:
+    """
+    Sends audio file to ElevenLabs API and returns transcribed text.
+    """
+    url = "https://api.elevenlabs.io/v1/speech-to-text"
+    headers = {
+        "xi-api-key": ELEVENLABS_API_KEY,
+    }
+    files = {
+        "audio": open(audio_path, "rb"),
+    }
+    response = requests.post(url, headers=headers, files=files)
+    response.raise_for_status()
+    return response.json().get("text", "")
+
 STOPWORDS = set([
     'the', 'is', 'at', 'which', 'on', 'a', 'an', 'and', 'in', 'to', 'of', 'for', 'with', 'by', 'as', 'from', 'that', 'this', 'it', 'was', 'were', 'has', 'had', 'have', 'be', 'been', 'are', 'or', 'but', 'not', 'so', 'if', 'then', 'than', 'into', 'out', 'about', 'over', 'under', 'after', 'before', 'between', 'during', 'without', 'within', 'upon', 'against', 'among', 'through', 'per', 'each', 'all', 'any', 'some', 'no', 'nor', 'can', 'will', 'just', 'do', 'does', 'did', 'done', 'should', 'could', 'would', 'may', 'might', 'must', 'shall', 'let', 'us', 'we', 'you', 'he', 'she', 'they', 'them', 'his', 'her', 'their', 'our', 'your', 'my', 'mine', 'yours', 'ours', 'theirs', 'who', 'whom', 'whose', 'which', 'what', 'when', 'where', 'why', 'how', 'i', 'me', 'him', 'itself', 'yourself', 'ourselves', 'themselves', 'herself', 'himself', 'itself', 'myself', 'yourself', 'ourselves', 'themselves'
 ])
