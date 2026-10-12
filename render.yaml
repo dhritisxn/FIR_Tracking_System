@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: fir-tracking-system
+    runtime: node
+    rootDir: Backend
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: MONGO_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: BCRYPT_SALT_ROUNDS
+        value: "10"
+      - key: FRONTEND_URL
+        sync: false
+
+  - type: web
+    name: fir-tracking-system-frontend
+    runtime: static
+    rootDir: Frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false

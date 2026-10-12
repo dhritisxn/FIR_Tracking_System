@@ -34,7 +34,7 @@ function getTranscriptionFromAudio(audioPath) {
         result += data.toString();
       });
       python.stderr.on("data", (data) => {
-        console.error(Python error: ${data});
+        console.error(`Python error: ${data}`);
       });
       python.on("close", () => {
         resolve(result.trim());

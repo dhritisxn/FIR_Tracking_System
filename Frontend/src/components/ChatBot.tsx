@@ -531,7 +531,7 @@ const handleStartSpeechRecognition = () => {
               {/* Microphone Button */}
               <button
                 onClick={isListening ? handleStopSpeechRecognition : handleStartSpeechRecognition}
-                className={bg-gradient-to-r from-purple-600 to-pink-600 text-white p-3 rounded-xl ml-2 shadow-lg hover:shadow-xl transform hover:scale-105 ${isListening ? 'animate-pulse' : ''}}
+                className={`bg-gradient-to-r from-purple-600 to-pink-600 text-white p-3 rounded-xl ml-2 shadow-lg hover:shadow-xl transform hover:scale-105 ${isListening ? 'animate-pulse' : ''}`}
                 title={isListening ? 'Stop Listening' : 'Start Speech to Text'}
               >
                 <Mic className="h-5 w-5" />

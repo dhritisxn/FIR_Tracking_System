@@ -10,7 +10,8 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:5173', // local dev
-    'https://fir-tracking-system-frontend.onrender.com' // deployed frontend
+    'https://fir-tracking-system-frontend.onrender.com', // deployed frontend
+    ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : [])
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
