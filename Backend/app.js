@@ -21,8 +21,15 @@ app.use(cors({
 app.use(express.json());
 
 // MongoDB connection with better error handling
-const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/fir_system';
+// Tolerate common paste mistakes: surrounding whitespace/quotes, a "MONGO_URL=" prefix, "mongodb-srv"
+const MONGO_URL = (process.env.MONGO_URL || process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/fir_system')
+  .trim()
+  .replace(/^(MONGO_URL|MONGODB_URI)\s*=\s*/i, '')
+  .replace(/^["']|["']$/g, '')
+  .replace(/^mongodb-srv:\/\//i, 'mongodb+srv://');
 
+// Log the connection target with credentials masked, to help diagnose bad values
+console.log('MongoDB target:', MONGO_URL.replace(/\/\/.*@/, '//***@'));
 
 mongoose.connect(MONGO_URL)
   .then(() => {
