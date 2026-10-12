@@ -11,6 +11,7 @@ app.use(cors({
   origin: [
     'http://localhost:5173', // local dev
     'https://fir-tracking-system-frontend.onrender.com', // deployed frontend
+    'https://fir-tracking-system-frontend-isxk.onrender.com', // Render frontend (dhritisxn)
     ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : [])
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
