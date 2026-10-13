@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Send, Bot, User, AlertTriangle, Phone, CreditCard, Shield, FileText, ExternalLink, Lightbulb, Clock, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Send, Bot, User, AlertTriangle, Phone, CreditCard, Shield, FileText, ExternalLink, Lightbulb, Clock, CheckCircle, Mic } from 'lucide-react';
 
 interface ChatBotProps {
   onBack: () => void;
@@ -318,33 +318,6 @@ const handleStartSpeechRecognition = () => {
     }
   };
 
-  // Send audio handler
-  const handleSendAudio = async () => {
-    if (audioChunks.length === 0) return;
-    setIsUploading(true);
-    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.wav');
-    formData.append('user_id', 'USER_ID'); // Replace with actual user id
-    formData.append('location', userProfile.location || 'Unknown');
-    try {
-      const res = await fetch('/api/police/register_fir_audio', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.transcription) {
-        addMessage('🎤 Transcribed: ' + data.transcription, 'user');
-        addMessage('✅ FIR Registered via audio!', 'bot');
-      } else {
-        addMessage('❌ Error: Could not transcribe audio.', 'bot');
-      }
-    } catch (err) {
-      addMessage('❌ Error sending audio.', 'bot');
-    }
-    setIsUploading(false);
-    setAudioChunks([]);
-  };
   const handleOptionClick = (option: string) => {
     addMessage(option, 'user');
     handleBotResponse(option);
