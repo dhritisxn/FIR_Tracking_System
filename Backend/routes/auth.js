@@ -1,40 +1,70 @@
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const Joi = require("joi");
+const rateLimit = require("express-rate-limit");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/auth");
+const { signToken } = authMiddleware;
+
+// Slow down password guessing: 10 failed attempts per IP per 15 minutes on each login route
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many login attempts. Please try again in 15 minutes." }
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many accounts created from this network. Please try again later." }
+});
 
 const registerSchema = Joi.object({
-  name: Joi.string().required(),
-  email: Joi.string().email().required(),
-  phoneNumber: Joi.string().required(),
-  password: Joi.string().min(6).required(),
-  role: Joi.string().valid("citizen", "admin", "officer")
+  name: Joi.string().trim().max(100).required(),
+  email: Joi.string().trim().email().max(254).required(),
+  phoneNumber: Joi.string().trim().max(20).required(),
+  password: Joi.string().min(8).max(128).required(),
+  // Public sign-up can only ever create citizen accounts
+  role: Joi.string().valid("citizen")
 });
 
 const loginSchema = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string().required()
+  email: Joi.string().trim().email().max(254).required(),
+  password: Joi.string().max(128).required()
 });
 
-router.post("/register", async (req, res) => {
+const publicUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  phoneNumber: user.phoneNumber,
+  role: user.role,
+  profile: user.profile,
+  createdAt: user.createdAt
+});
+
+router.post("/register", registerLimiter, async (req, res) => {
   try {
-    const { error } = registerSchema.validate(req.body);
+    const { error, value } = registerSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: error.details[0].message,
         field: error.details[0].path[0]
       });
     }
 
-    const { name, email, phoneNumber, password } = req.body;
-    
+    const { name, email, phoneNumber, password } = value;
+
     // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(409).json({ 
+      return res.status(409).json({
         error: "An account with this email already exists",
         field: "email"
       });
@@ -60,87 +90,39 @@ router.post("/register", async (req, res) => {
 
     await user.save();
 
-    // Generate token
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "1d" }
-    );
-
-    res.status(201).json({
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        role: user.role,
-        profile: user.profile,
-        createdAt: user.createdAt
-      }
-    });
+    res.status(201).json({ token: signToken(user), user: publicUser(user) });
   } catch (err) {
-    console.error("Registration error:", err);
+    console.error("Registration error:", err.message);
     res.status(500).json({ error: "Registration failed. Please try again." });
   }
 });
 
-router.post("/login", async (req, res) => {
+// Shared login handler; `role` restricts which accounts may use the route
+const login = (role, invalidMessage) => async (req, res) => {
   try {
-    console.log('Login attempt for:', req.body.email);
-    
-    const { error } = loginSchema.validate(req.body);
+    const { error, value } = loginSchema.validate(req.body);
     if (error) {
-      console.log('Validation error:', error.details[0].message);
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { email, password } = req.body;
+    const { email, password } = value;
+    const user = await User.findOne(role ? { email, role } : { email });
 
-    // Find user by email
-    const user = await User.findOne({ email });
-    console.log('User found:', user ? 'Yes' : 'No');
-    
-    if (!user) {
-      console.log('User not found with email:', email);
-      return res.status(401).json({ error: "Invalid credentials" });
+    // Same response whether the email or the password is wrong
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ error: invalidMessage });
     }
 
-    // Verify password
-    console.log('Comparing passwords...');
-    const validPassword = await bcrypt.compare(password, user.password);
-    console.log('Password valid:', validPassword ? 'Yes' : 'No');
-    
-    if (!validPassword) {
-      console.log('Invalid password for user:', email);
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    // Generate token
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "1d" }
-    );
-
-    console.log('Login successful for:', email);
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        role: user.role,
-        profile: user.profile,
-        createdAt: user.createdAt
-      }
-    });
+    res.json({ token: signToken(user), user: publicUser(user) });
   } catch (err) {
-    console.error('Login error:', err);
+    console.error("Login error:", err.message);
     res.status(500).json({ error: "Login failed. Please try again." });
   }
-});
+};
+
+router.post("/login", loginLimiter, login(null, "Invalid credentials"));
+router.post("/admin/login", loginLimiter, login("admin", "Invalid admin credentials"));
+router.post("/officer/login", loginLimiter, login("officer", "Invalid credentials"));
 
 router.get("/me", authMiddleware(), async (req, res) => {
   try {
@@ -148,118 +130,10 @@ router.get("/me", authMiddleware(), async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.json({
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      phoneNumber: user.phoneNumber,
-      role: user.role,
-      profile: user.profile,
-      createdAt: user.createdAt
-    });
+    res.json(publicUser(user));
   } catch (err) {
-    console.error("Get user error:", err);
+    console.error("Get user error:", err.message);
     res.status(500).json({ error: "Failed to fetch user data" });
-  }
-});
-
-// Admin login route
-router.post("/admin/login", async (req, res) => {
-  try {
-    console.log('Admin login attempt for:', req.body.email);
-    
-    const { error } = loginSchema.validate(req.body);
-    if (error) {
-      console.log('Validation error:', error.details[0].message);
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { email, password } = req.body;
-
-    // Find admin user by email
-    const user = await User.findOne({ email, role: "admin" });
-    console.log('Admin found:', user ? 'Yes' : 'No');
-    
-    if (!user) {
-      console.log('Admin not found with email:', email);
-      return res.status(401).json({ error: "Invalid admin credentials" });
-    }
-
-    // Verify password
-    console.log('Comparing passwords...');
-    const validPassword = await bcrypt.compare(password, user.password);
-    console.log('Password valid:', validPassword ? 'Yes' : 'No');
-    
-    if (!validPassword) {
-      console.log('Invalid password for admin:', email);
-      return res.status(401).json({ error: "Invalid admin credentials" });
-    }
-
-    // Generate token
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "1d" }
-    );
-
-    console.log('Admin login successful for:', email);
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        role: user.role,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
-      }
-    });
-  } catch (err) {
-    console.error('Admin login error:', err);
-    res.status(500).json({ error: "Admin login failed. Please try again." });
-  }
-});
-
-router.post("/officer/login", async (req, res) => {
-  try {
-    const { error } = loginSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { email, password } = req.body;
-    const user = await User.findOne({ email, role: "officer" });
-    if (!user) {
-      return res.status(400).json({ error: "Invalid credentials" });
-    }
-
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      return res.status(400).json({ error: "Invalid credentials" });
-    }
-
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "1d" }
-    );
-
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        role: user.role,
-        profile: user.profile,
-        createdAt: user.createdAt
-      }
-    });
-  } catch (err) {
-    console.error("Officer login error:", err);
-    res.status(500).json({ error: "Login failed" });
   }
 });
 

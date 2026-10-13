@@ -1,24 +1,56 @@
 const express = require("express");
 const router = express.Router();
 const FIR = require("../models/FIR");
+const Counter = require("../models/Counter");
 const authMiddleware = require("../middleware/auth");
+const { ROLES, STAFF_ROLES } = authMiddleware;
 const mongoose = require('mongoose');
+const Joi = require("joi");
 
-// Helper function to generate FIR number
+const isDuplicateKey = (err) => err && err.code === 11000;
+
+// Generate the next FIR number from an atomic per-year counter, so two
+// simultaneous submissions can never be handed the same number.
 const generateFIRNumber = async () => {
   const currentYear = new Date().getFullYear();
-  const lastFIR = await FIR.findOne({
-    firNumber: new RegExp(`^FIR${currentYear}`)
-  }).sort({ firNumber: -1 });
+  const prefix = `FIR${currentYear}`;
+  const counterId = `fir-${currentYear}`;
 
-  if (!lastFIR) {
-    return `FIR${currentYear}001`;
+  // First use this year: start the counter after any FIRs numbered by the old scheme
+  if (!(await Counter.exists({ _id: counterId }))) {
+    const lastFIR = await FIR.findOne({
+      firNumber: new RegExp(`^${prefix}\\d+$`)
+    }).sort({ firNumber: -1 });
+    const lastNumber = lastFIR ? parseInt(lastFIR.firNumber.slice(prefix.length), 10) || 0 : 0;
+    try {
+      await Counter.updateOne({ _id: counterId }, { $max: { seq: lastNumber } }, { upsert: true });
+    } catch (err) {
+      if (!isDuplicateKey(err)) throw err; // another request created it first
+    }
   }
 
-  const lastNumber = parseInt(lastFIR.firNumber.slice(-3));
-  const newNumber = (lastNumber + 1).toString().padStart(3, '0');
-  return `FIR${currentYear}${newNumber}`;
+  const counter = await Counter.findOneAndUpdate(
+    { _id: counterId },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+  return `${prefix}${counter.seq.toString().padStart(3, '0')}`;
 };
+
+const firInputSchema = Joi.object({
+  complainantName: Joi.string().trim().max(100).required(),
+  phoneNumber: Joi.string().trim().max(20).required(),
+  email: Joi.string().trim().email().max(254).required(),
+  incidentType: Joi.string().trim().max(100).required(),
+  location: Joi.string().trim().max(300).required(),
+  dateTime: Joi.date().required(),
+  description: Joi.string().trim().max(5000).required(),
+  evidenceFiles: Joi.array().items(Joi.string().max(255)).max(20).default([])
+}).unknown(true);
+
+// Citizens may only see their own FIRs; officers and admins may see any
+const canViewFIR = (user, fir) =>
+  STAFF_ROLES.includes(user.role) || String(fir.userId) === String(user.id);
 
 function assignPriority(incidentType, description) {
   const critical_keywords = ["fraud", "cybercrime", "financial scam", "hacking", "extortion", "terror"];
@@ -34,6 +66,10 @@ function assignPriority(incidentType, description) {
 // Create FIR
 router.post("/register_fir", authMiddleware(), async (req, res) => {
   try {
+    const { error, value } = firInputSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
     const {
       complainantName,
       phoneNumber,
@@ -42,33 +78,38 @@ router.post("/register_fir", authMiddleware(), async (req, res) => {
       location,
       dateTime,
       description,
-      evidenceFiles = []
-    } = req.body;
+      evidenceFiles
+    } = value;
 
-    const firNumber = await generateFIRNumber();
-
-    // Create new FIR
-    const fir = new FIR({
-      firNumber,
-      complainantName,
-      phoneNumber,
-      email,
-      incidentType,
-      location,
-      dateTime,
-      description,
-      evidenceFiles,
-      userId: req.user.id,
-      status: 'submitted',
-      updates: [{
-        timestamp: new Date(),
+    // Create new FIR (retrying if the number collides with an existing record)
+    let fir;
+    for (let attempt = 0; ; attempt++) {
+      fir = new FIR({
+        firNumber: await generateFIRNumber(),
+        complainantName,
+        phoneNumber,
+        email,
+        incidentType,
+        location,
+        dateTime,
+        description,
+        evidenceFiles,
+        userId: req.user.id,
         status: 'submitted',
-        message: 'FIR has been successfully registered',
-        officer: null
-      }]
-    });
-
-    await fir.save();
+        updates: [{
+          timestamp: new Date(),
+          status: 'submitted',
+          message: 'FIR has been successfully registered',
+          officer: null
+        }]
+      });
+      try {
+        await fir.save();
+        break;
+      } catch (err) {
+        if (!isDuplicateKey(err) || attempt >= 4) throw err;
+      }
+    }
 
     res.status(201).json({
       message: "FIR registered successfully",
@@ -90,7 +131,7 @@ router.post("/register_fir", authMiddleware(), async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error registering FIR:', error);
+    console.error('Error registering FIR:', error.message);
     res.status(500).json({ error: "Failed to register FIR. Please try again." });
   }
 });
@@ -99,45 +140,27 @@ router.post("/register_fir", authMiddleware(), async (req, res) => {
 router.get("/firs/:id", authMiddleware(), async (req, res) => {
   try {
     const searchId = req.params.id;
-    console.log('Searching for FIR:', searchId);
 
     let query = {};
-    
+
     // If it looks like a FIR number (starts with FIR), search by firNumber
-    if (searchId.startsWith('FIR')) {
-      console.log('Searching by FIR number');
+    if (/^FIR\d+$/.test(searchId)) {
       query = { firNumber: searchId };
-    } 
+    }
     // If it looks like a MongoDB ObjectId, search by _id
     else if (mongoose.Types.ObjectId.isValid(searchId)) {
-      console.log('Searching by ObjectId');
       query = { _id: searchId };
     }
     else {
-      console.log('Invalid search ID format');
       return res.status(400).json({ error: "Invalid FIR ID format" });
     }
 
-    console.log('Using query:', query);
     const fir = await FIR.findOne(query);
 
-    if (!fir) {
-      console.log('FIR not found');
-      // Debug: List all FIRs in the database
-      const allFirs = await FIR.find({});
-      console.log('All FIRs in database:', allFirs.map(f => ({
-        id: f._id,
-        firNumber: f.firNumber,
-        complainantName: f.complainantName
-      })));
+    // Someone else's FIR gets the same 404 as a missing one, so FIR numbers can't be probed
+    if (!fir || !canViewFIR(req.user, fir)) {
       return res.status(404).json({ error: "FIR not found" });
     }
-
-    console.log('FIR found:', {
-      id: fir._id,
-      firNumber: fir.firNumber,
-      status: fir.status
-    });
 
     res.json({
       id: fir._id,
@@ -158,7 +181,7 @@ router.get("/firs/:id", authMiddleware(), async (req, res) => {
       assignedOfficerId: fir.assignedOfficerId
     });
   } catch (error) {
-    console.error('Error searching FIR:', error);
+    console.error('Error searching FIR:', error.message);
     res.status(500).json({ error: "Failed to fetch FIR details" });
   }
 });
@@ -167,14 +190,14 @@ router.get("/firs/:id", authMiddleware(), async (req, res) => {
 router.get("/firs", authMiddleware(), async (req, res) => {
   try {
     let query = {};
-    
+
     // If user is not admin or officer, only show their own FIRs
-    if (req.user.role === 'citizen') {
+    if (!STAFF_ROLES.includes(req.user.role)) {
       query.userId = req.user.id;
     }
 
     const firs = await FIR.find(query).sort({ createdAt: -1 });
-    
+
     const formattedFirs = firs.map(fir => ({
       id: fir._id,
       firNumber: fir.firNumber,
@@ -194,46 +217,29 @@ router.get("/firs", authMiddleware(), async (req, res) => {
       assignedOfficerId: fir.assignedOfficerId
     }));
 
-    console.log(`Found ${formattedFirs.length} FIRs for user ${req.user.id} (${req.user.role})`);
     res.json(formattedFirs);
   } catch (error) {
-    console.error('Error fetching FIRs:', error);
+    console.error('Error fetching FIRs:', error.message);
     res.status(500).json({ error: "Failed to fetch FIRs" });
   }
 });
 
 // Assign officer to FIR
-router.patch("/firs/:id/assign", authMiddleware(), async (req, res) => {
+router.patch("/firs/:id/assign", authMiddleware(ROLES.ADMIN), async (req, res) => {
   try {
-    console.log('Assigning officer to FIR:', req.params.id);
-    console.log('Request body:', req.body);
-    console.log('User role:', req.user.role);
-    
     const { officerId, officerName } = req.body;
-    
-    if (!officerId || !officerName) {
-      console.log('Missing required fields:', { officerId, officerName });
+
+    if (typeof officerId !== 'string' || typeof officerName !== 'string' || !officerId || !officerName) {
       return res.status(400).json({ error: "Officer ID and name are required" });
     }
-    
-    // Verify that the user is an admin
-    if (req.user.role !== 'admin') {
-      console.log('Unauthorized: User role is not admin');
-      return res.status(403).json({ error: "Only admins can assign officers to FIRs" });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id) || !mongoose.Types.ObjectId.isValid(officerId)) {
+      return res.status(400).json({ error: "Invalid ID format" });
     }
 
     const fir = await FIR.findById(req.params.id);
     if (!fir) {
-      console.log('FIR not found with ID:', req.params.id);
       return res.status(404).json({ error: "FIR not found" });
     }
-
-    console.log('Found FIR:', {
-      id: fir._id,
-      firNumber: fir.firNumber,
-      currentStatus: fir.status,
-      currentOfficer: fir.assignedOfficer
-    });
 
     // Update the FIR with the assigned officer
     fir.assignedOfficerId = officerId;
@@ -246,9 +252,7 @@ router.patch("/firs/:id/assign", authMiddleware(), async (req, res) => {
       officer: officerName
     });
 
-    console.log('Saving updated FIR with new officer assignment');
     await fir.save();
-    console.log('FIR updated successfully');
 
     res.json({
       message: "Officer assigned successfully",
@@ -263,42 +267,30 @@ router.patch("/firs/:id/assign", authMiddleware(), async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error assigning officer:', error);
-    res.status(500).json({ error: "Failed to assign officer: " + error.message });
+    console.error('Error assigning officer:', error.message);
+    res.status(500).json({ error: "Failed to assign officer" });
   }
 });
 
 // Update FIR status
-router.patch("/firs/:id/status", authMiddleware(), async (req, res) => {
+router.patch("/firs/:id/status", authMiddleware(STAFF_ROLES), async (req, res) => {
   try {
-    console.log('Updating FIR status:', req.params.id);
-    console.log('Request body:', req.body);
-    console.log('User role:', req.user.role);
-    
     const { status, message } = req.body;
-    
-    if (!status || !message) {
-      console.log('Missing required fields:', { status, message });
+
+    if (typeof status !== 'string' || typeof message !== 'string' || !status || !message) {
       return res.status(400).json({ error: "Status and message are required" });
     }
-
-    // Verify that the user is an admin or officer
-    if (!['admin', 'officer'].includes(req.user.role)) {
-      console.log('Unauthorized: User role is not admin/officer');
-      return res.status(403).json({ error: "Only admins and officers can update FIR status" });
+    if (message.length > 2000) {
+      return res.status(400).json({ error: "Message is too long" });
+    }
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid FIR ID format" });
     }
 
     const fir = await FIR.findById(req.params.id);
     if (!fir) {
-      console.log('FIR not found with ID:', req.params.id);
       return res.status(404).json({ error: "FIR not found" });
     }
-
-    console.log('Found FIR:', {
-      id: fir._id,
-      firNumber: fir.firNumber,
-      currentStatus: fir.status
-    });
 
     // Update the FIR status
     fir.status = status;
@@ -309,9 +301,7 @@ router.patch("/firs/:id/status", authMiddleware(), async (req, res) => {
       officer: req.user.name
     });
 
-    console.log('Saving updated FIR with new status');
     await fir.save();
-    console.log('FIR updated successfully');
 
     res.json({
       message: "FIR status updated successfully",
@@ -326,8 +316,8 @@ router.patch("/firs/:id/status", authMiddleware(), async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error updating FIR status:', error);
-    res.status(500).json({ error: "Failed to update FIR status: " + error.message });
+    console.error('Error updating FIR status:', error.message);
+    res.status(500).json({ error: "Failed to update FIR status" });
   }
 });
 

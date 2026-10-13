@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const User = require('../models/User');
 require('dotenv').config();
 
@@ -36,10 +37,6 @@ const createOfficers = async () => {
         await mongoose.connect(process.env.MONGO_URL);
         console.log('Connected to MongoDB Atlas');
 
-        const password = 'officer123'; // Same password for all officers for simplicity
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
         for (const officerData of officersData) {
             // Check if officer already exists
             const existingOfficer = await User.findOne({ email: officerData.email });
@@ -47,6 +44,11 @@ const createOfficers = async () => {
                 console.log(`Officer with email ${officerData.email} already exists`);
                 continue;
             }
+
+            // Each officer gets a unique random password, shown once below; share it
+            // with that officer securely and have them change it
+            const password = crypto.randomBytes(12).toString('base64url');
+            const hashedPassword = await bcrypt.hash(password, await bcrypt.genSalt(10));
 
             // Create new officer
             const officer = new User({
@@ -65,14 +67,14 @@ const createOfficers = async () => {
             });
 
             await officer.save();
-            console.log(`Created officer: ${officerData.name}`);
+            console.log(`Created officer: ${officerData.name} <${officerData.email}>  temporary password: ${password}`);
         }
 
         console.log('All officers created successfully');
         await mongoose.connection.close();
         
     } catch (error) {
-        console.error('Error creating officers:', error);
+        console.error('Error creating officers:', error.message);
         await mongoose.connection.close();
     }
 };

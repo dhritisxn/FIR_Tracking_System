@@ -2,9 +2,21 @@ const express = require("express");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const { getJwtSecret } = require("./middleware/auth");
 
 dotenv.config();
+
+// Refuse to start without a strong JWT secret (throws with a clear message)
+getJwtSecret();
+
 const app = express();
+
+// Render sits behind one proxy; needed so rate limiting sees the real client IP
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+app.use(helmet());
 
 // CORS configuration
 app.use(cors({
@@ -19,7 +31,18 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
+// Cap request bodies so oversized payloads are rejected early
+app.use(express.json({ limit: "100kb" }));
+app.use(express.urlencoded({ extended: false, limit: "100kb" }));
+
+// Broad per-IP limit across the API; login has a stricter limiter of its own
+app.use("/api", rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please slow down and try again shortly." }
+}));
 
 // MongoDB connection with better error handling
 // Tolerate common paste mistakes: surrounding whitespace/quotes, a "MONGO_URL=" prefix, "mongodb-srv"
@@ -60,8 +83,10 @@ app.use("/api/notifications", require("./routes/notifications"));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: err.message || 'Something went wrong!' });
+  const status = err.status || err.statusCode || 500;
+  if (status >= 500) console.error('Error:', err.message);
+  // Don't leak internal error details to clients
+  res.status(status).json({ error: status >= 500 ? 'Something went wrong!' : err.message });
 });
 
 module.exports = app;

@@ -1,3 +1,4 @@
+import os
 import sys
 import math
 import random
@@ -12,20 +13,21 @@ PRIORITY_LABELS = {
     3: "Low"
 }
 
-ELEVENLABS_API_KEY = "sk_106ea751040f4fcf45e9033a863eb0f45cc4bb142d79228c"
+# Read from the environment; never hardcode API keys in source
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 
 def transcribe_audio_elevenlabs(audio_path: str) -> str:
     """
     Sends audio file to ElevenLabs API and returns transcribed text.
     """
+    if not ELEVENLABS_API_KEY:
+        raise RuntimeError("ELEVENLABS_API_KEY environment variable is not set")
     url = "https://api.elevenlabs.io/v1/speech-to-text"
     headers = {
         "xi-api-key": ELEVENLABS_API_KEY,
     }
-    files = {
-        "audio": open(audio_path, "rb"),
-    }
-    response = requests.post(url, headers=headers, files=files)
+    with open(audio_path, "rb") as audio_file:
+        response = requests.post(url, headers=headers, files={"audio": audio_file}, timeout=60)
     response.raise_for_status()
     return response.json().get("text", "")
 

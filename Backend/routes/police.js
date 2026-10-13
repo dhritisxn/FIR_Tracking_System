@@ -4,9 +4,54 @@ const { spawn } = require("child_process");
 const FIR = require("../models/FIR");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
+const { ROLES, STAFF_ROLES } = auth;
 const Joi = require("joi");
 const multer = require("multer");
-const upload = multer({ dest: "uploads/" });
+const crypto = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+// Audio uploads: audio types only, 10 MB max, random names, kept in the OS temp
+// directory (never a publicly served folder) and deleted once processed.
+const ALLOWED_AUDIO_TYPES = {
+  "audio/mpeg": ".mp3",
+  "audio/mp3": ".mp3",
+  "audio/wav": ".wav",
+  "audio/x-wav": ".wav",
+  "audio/wave": ".wav",
+  "audio/webm": ".webm",
+  "audio/ogg": ".ogg",
+  "audio/mp4": ".m4a",
+  "audio/x-m4a": ".m4a",
+  "audio/aac": ".aac"
+};
+const UPLOAD_DIR = path.join(os.tmpdir(), "fir-audio-uploads");
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: (req, file, cb) =>
+      cb(null, crypto.randomUUID() + ALLOWED_AUDIO_TYPES[file.mimetype])
+  }),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 10 },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_AUDIO_TYPES[file.mimetype]) return cb(null, true);
+    const err = new Error("Only audio files (mp3, wav, webm, ogg, m4a, aac) are allowed");
+    err.status = 400;
+    cb(err);
+  }
+});
+
+// Run the upload and turn multer errors (bad type, too large) into 400 responses
+function uploadAudio(req, res, next) {
+  upload.single("audio")(req, res, (err) => {
+    if (!err) return next();
+    const message = err.code === "LIMIT_FILE_SIZE" ? "Audio file must be 10 MB or smaller" : err.message;
+    res.status(err instanceof multer.MulterError || err.status === 400 ? 400 : 500).json({ error: message });
+  });
+}
 
 function getPriorityFromML(description) {
   return new Promise((resolve, reject) => {
@@ -53,8 +98,9 @@ function validateFIRInput(req, res, next) {
   next();
 }
 
-router.use(auth("police"));
-router.post("/register_fir_audio", upload.single("audio"), async (req, res) => {
+// Every police route is for officers and admins only
+router.use(auth(STAFF_ROLES));
+router.post("/register_fir_audio", uploadAudio, async (req, res) => {
   const { user_id, location } = req.body;
   const audioFile = req.file;
   if (!audioFile) {
@@ -69,8 +115,10 @@ router.post("/register_fir_audio", upload.single("audio"), async (req, res) => {
     await newFIR.save();
     res.status(201).json({ message: "FIR Registered via audio", fir: newFIR, transcription: transcribedText });
   } catch (err) {
-    console.error(err);
+    console.error("Error registering FIR from audio:", err.message);
     res.status(500).json({ error: "Error registering FIR from audio" });
+  } finally {
+    fs.promises.unlink(audioFile.path).catch(() => {});
   }
 });
 
@@ -165,29 +213,21 @@ router.get("/firs_by_priority/:priority", async (req, res) => {
 });
 
 // Get all officers (admin only)
-router.get("/officers", async (req, res) => {
+router.get("/officers", auth(ROLES.ADMIN), async (req, res) => {
   try {
-    console.log('Request to fetch officers from:', req.user?.email);
-    
-    // Verify admin role
-    if (req.user?.role !== 'admin') {
-      console.log('Access denied - not admin:', req.user?.role);
-      return res.status(403).json({ error: 'Access denied. Admin only.' });
-    }
 
     // Fetch officers
     const officers = await User.find(
       { role: 'officer' },
-      { 
+      {
         password: 0,  // Exclude password
         __v: 0       // Exclude version key
       }
     );
 
-    console.log(`Found ${officers.length} officers`);
     res.json(officers);
   } catch (error) {
-    console.error('Error fetching officers:', error);
+    console.error('Error fetching officers:', error.message);
     res.status(500).json({ error: 'Failed to fetch officers' });
   }
 });
