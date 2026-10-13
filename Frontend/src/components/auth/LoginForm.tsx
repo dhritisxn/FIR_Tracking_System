@@ -107,14 +107,6 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup, onSwitchToAdmin
               </div>
             )}
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-blue-800 text-sm">
-                <strong>Demo Credentials:</strong><br />
-                Email: rajesh.kumar@email.com<br />
-                Password: password123
-              </p>
-            </div>
-
             <button
               type="submit"
               disabled={isLoading}

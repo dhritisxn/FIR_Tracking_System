@@ -132,14 +132,6 @@ const AdminLoginForm: React.FC<AdminLoginFormProps> = ({ onSwitchToCitizen, onBa
               </div>
             )}
 
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-              <p className="text-gray-700 text-sm">
-                <strong>Demo Admin Credentials:</strong><br />
-                Email: admin@police.gov.in<br />
-                Password: admin123
-              </p>
-            </div>
-
             <button
               type="submit"
               disabled={isSubmitting}
